@@ -176,7 +176,11 @@ fi
 
 APPS=""
 while [ -n "$1" ]; do
-  APPS="$APPS $1"
+  if [ -z "$APPS" ]; then
+    APPS=$1
+  else
+    APPS="$APPS $1"
+  fi
   shift
 done
 
@@ -194,7 +198,7 @@ case "$ACTION" in
     ;;
   restore)
     if [ "all" = "$APPS" ]; then
-
+      APPS=$(ls $BACKUPPATH | sed -e "s/\(.*\).tgz/\1/")
     fi
     foreach app_restore $APPS
     ;;
