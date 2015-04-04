@@ -7,17 +7,17 @@
 # (C) 2015 Nicolai Ehemann (en@enlightened.de)
 #
 # This program is free software: you can redistribute it and/or modify
- it under the terms of the GNU General Public License as published by
- the Free Software Foundation, either version 3 of the License, or
- (at your option) any later version.
-
- This program is distributed in the hope that it will be useful,
- but WITHOUT ANY WARRANTY; without even the implied warranty of
- MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- GNU General Public License for more details.
-
- You should have received a copy of the GNU General Public License
- along with this program.  If not, see <http://www.gnu.org/licenses/>.
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation, either version 3 of the License, or
+# (at your option) any later version.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #
 
 VERSION="0.1"
@@ -57,33 +57,51 @@ function app_get_apk() {
   pm list packages -f $1 | sed -e "s/package:\([^=]*\)=$1/\1/"
 }
 
+function apps_get_list() {
+  pm list packages | sed -e "s/package:\(.*\)/\1/"
+}
+
 function app_backup() {
   app=$1
-  debug 2 "app_backup($app)"
+
   pushd $BACKUPPATH > /dev/null
-  
   apk=$(app_get_apk "$app")
 
   echo "Backing up $app"
+  link=""
   debug 1 "  apk=$apk"
   [ -n "$apk" ] || { error "app $app not found"; exit -1; }
   cp $apk $app.apk
+  if [ -h $apk ]; then
+    touch $app.link
+    link=" $app.link"
+  fi
 
-  debug 2 "tar --exclude=data/data/$app/lib --exclude=data/data/$app/cache --exclude=data/data/$app/app_webview -cvf $app.tar $app.apk /data/data/$app"
-  tar --exclude=data/data/$app/lib --exclude=data/data/$app/cache --exclude=data/data/$app/app_webview -cvf $app.tar $app.apk /data/data/$app
+  debug 2 "tar --exclude=data/data/$app/lib --exclude=data/data/$app/cache --exclude=data/data/$app/app_webview -cf $app.tar $app.apk /data/data/$app"
+  tar --exclude=data/data/$app/lib --exclude=data/data/$app/cache --exclude=data/data/$app/app_webview -cf $app.tar $app.apk$link /data/data/$app
+  
+  if [ -n "$link" ]; then
+    rm $app.link
+  fi
 
   popd > /dev/null
 }
 
 function app_restore() {
   app=$1
-  debug 2 "app_restore($app)"
 
   echo "Restoring $app"
   pushd $BACKUPPATH > /dev/null
   tar -xf $app.tar $app.apk || { error "failed to unpack apk"; exit -1; }
   pm install $BACKUPPATH/$app.apk || { error "failed to install apk"; rm $app.apk; exit -1; }
   rm $app.apk
+  tar -xf $app.tar $app.link > /dev/null 2>&1 && {
+    rm $app.link
+    apk=$(app_get_apk "$app")
+    apkbase=$(basename $apk)
+    mv $apk /data/sdext2/$apkbase
+    ln -s /data/sdext2/$apkbase $apk
+  }
   popd > /dev/null
 
   [ -d /data/data/$app ] || { error "no data directory found"; exit -1; }
@@ -157,10 +175,13 @@ if [ -z "$1" ]; then
 fi
 
 APPS=""
-while [ -n "$1" ]; do
-  APPS="$APPS $1"
-  shift
-done
+if [ "all" = "$1" ]; then
+else
+  while [ -n "$1" ]; do
+    APPS="$APPS $1"
+    shift
+  done
+fi
 
 if [ ! -d "$BACKUPPATH" ]; then
   mkdir "$BACKUPPATH"
@@ -168,10 +189,16 @@ fi
 
 case "$ACTION" in
   backup)
+    if [ "all" = "$APPS" ]; then
+      APPS=$(apps_get_list)
+    fi
     foreach app_backup $APPS
     am broadcast -a android.intent.action.MEDIA_MOUNTED -d file://$BACKUPPATH
     ;;
   restore)
+    if [ "all" = "$APPS" ]; then
+
+    fi
     foreach app_restore $APPS
     ;;
   *)
