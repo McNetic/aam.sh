@@ -77,8 +77,8 @@ function app_backup() {
     link=" $app.link"
   fi
 
-  debug 2 "tar --exclude=data/data/$app/lib --exclude=data/data/$app/cache --exclude=data/data/$app/app_webview -cf $app.tar $app.apk /data/data/$app"
-  tar --exclude=data/data/$app/lib --exclude=data/data/$app/cache --exclude=data/data/$app/app_webview -cf $app.tar $app.apk$link /data/data/$app
+  debug 2 "tar --exclude=data/data/$app/lib --exclude=data/data/$app/cache --exclude=data/data/$app/app_webview -czf $app.tgz $app.apk /data/data/$app"
+  tar --exclude=data/data/$app/lib --exclude=data/data/$app/cache --exclude=data/data/$app/app_webview -czf $app.tgz $app.apk$link /data/data/$app
   
   if [ -n "$link" ]; then
     rm $app.link
@@ -92,10 +92,10 @@ function app_restore() {
 
   echo "Restoring $app"
   pushd $BACKUPPATH > /dev/null
-  tar -xf $app.tar $app.apk || { error "failed to unpack apk"; exit -1; }
+  tar -xzf $app.tgz $app.apk || { error "failed to unpack apk"; exit -1; }
   pm install $BACKUPPATH/$app.apk || { error "failed to install apk"; rm $app.apk; exit -1; }
   rm $app.apk
-  tar -xf $app.tar $app.link > /dev/null 2>&1 && {
+  tar -xzf $app.tgz $app.link > /dev/null 2>&1 && {
     rm $app.link
     apk=$(app_get_apk "$app")
     apkbase=$(basename $apk)
@@ -109,7 +109,7 @@ function app_restore() {
   gid=$(ls -lnd /data/data/$app | awk '{print $3}')
 
   pushd / > /dev/null
-  tar -xf $BACKUPPATH/$app.tar data/data/$app
+  tar -xzf $BACKUPPATH/$app.tgz data/data/$app
   find /data/data/$app/ -exec chown $uid.$gid {} \;
   chown $uid.$gid /data/data/$app
   popd > /dev/null
