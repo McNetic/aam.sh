@@ -54,7 +54,7 @@ function debug() {
 }
 
 function app_get_apk() {
-  pm list packages -f $1 | sed -e "s/package:\([^=]*\)=$1/\1/"
+  pm list packages -f $1 | grep "=$1$" | sed -e "s/package:\([^=]*\)=$1/\1/"
 }
 
 function apps_get_list() {
@@ -78,8 +78,9 @@ function app_backup() {
   fi
 
   debug 2 "tar --exclude=data/data/$app/lib --exclude=data/data/$app/cache --exclude=data/data/$app/app_webview -czf $app.tgz $app.apk /data/data/$app"
-  tar --exclude=data/data/$app/lib --exclude=data/data/$app/cache --exclude=data/data/$app/app_webview -czf $app.tgz $app.apk$link /data/data/$app
+  tar --exclude=data/data/$app/lib --exclude=data/data/$app/cache --exclude=data/data/$app/app_webview -czf $app.tgz $app.apk$link /data/data/$app > /dev/null 2>&1
   
+  rm $app.apk
   if [ -n "$link" ]; then
     rm $app.link
   fi
