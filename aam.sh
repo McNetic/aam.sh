@@ -93,10 +93,13 @@ function app_restore() {
 
   echo "Restoring $app"
   pushd $BACKUPPATH > /dev/null
+  debug 1 "unpacking apk"
   tar -xzf $app.tgz $app.apk || { error "failed to unpack apk"; exit -1; }
+  debug 1 "installing apk"
   pm install $BACKUPPATH/$app.apk || { error "failed to install apk"; rm $app.apk; exit -1; }
   rm $app.apk
   tar -xzf $app.tgz $app.link > /dev/null 2>&1 && {
+    debug 1 "moving apk to sdcard and relinking"
     rm $app.link
     apk=$(app_get_apk "$app")
     apkbase=$(basename $apk)
@@ -110,10 +113,17 @@ function app_restore() {
   gid=$(ls -lnd /data/data/$app | awk '{print $3}')
 
   pushd / > /dev/null
+  debug 1 "unpacking data"
   tar -xzf $BACKUPPATH/$app.tgz data/data/$app
+  debug 1 "fixing data permissions"
   find /data/data/$app/ -exec chown $uid.$gid {} \;
   chown $uid.$gid /data/data/$app
   popd > /dev/null
+
+  if [ -d /storage/sdcard1/Android/data/$app ]; then
+    debug 1 "fixing sdcard data permissions"
+    chown  -R $uid /storage/sdcard1/Android/data/$app
+  fi
 }
 #restore_app() {
 #  echo $1
