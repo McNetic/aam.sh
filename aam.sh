@@ -32,6 +32,7 @@ usage() {
   echo "  -V | --version      - show version information"
   echo "options:"
   echo "  -d | --debug <lvl>  - set debug level (default 0, max 2)"
+  echo "  -D | --data-only    - backup/restore only data"
   echo "  -p | --path <path>  - backup/restore path (default /storage/sdcard1/aam_backup)"
   echo "       --nolink       - do not relink app to sdcard"
 
@@ -56,7 +57,9 @@ function debug() {
 }
 
 function app_get_apk() {
-  pm list packages -f $1 | grep "=$1$" | sed -e "s/package:\([^=]*\)=$1/\1/"
+  result=$(pm list packages -f $1 | grep "=$1$" | sed -e "s/package:\([^=]*\)=$1/\1/")
+  echo $result
+  return $([ -n "$result" ] && echo 0 || echo -1)
 }
 
 function apps_get_list() {
@@ -69,21 +72,31 @@ function app_backup() {
   pushd $BACKUPPATH > /dev/null
   apk=$(app_get_apk "$app")
 
+  [ -n "$apk" ] || { error "app $app not found"; exit -1; }
+
   echo "Backing up $app"
   link=""
-  debug 1 "  apk=$apk"
-  [ -n "$apk" ] || { error "app $app not found"; exit -1; }
-  cp $apk $app.apk
+  debug 1 "(apk=$apk)"
+  if ! $DATAONLY; then
+    debug 1 "copying apk to backup target"
+    cp $apk $app.apk
+    tarapk=" $app.apk"
+  fi
   if [ -h $apk ]; then
+    debug 1 "creating symbolic link marker"
     touch $app.link
-    link=" $app.link"
+    tarlink=" $app.link"
   fi
 
-  debug 2 "tar --exclude=data/data/$app/lib --exclude=data/data/$app/cache --exclude=data/data/$app/app_webview -czf $app.tgz $app.apk /data/data/$app"
-  tar --exclude=data/data/$app/lib --exclude=data/data/$app/cache --exclude=data/data/$app/app_webview -czf $app.tgz $app.apk$link /data/data/$app > /dev/null 2>&1
+  debug 1 "packing data$( $DATAONLY || echo ' and apk')"
+  debug 2 "tar --exclude=data/data/$app/lib --exclude=data/data/$app/cache --exclude=data/data/$app/app_webview -czf $app.tgz$tarapk$tarlink /data/data/$app"
+  tar --exclude=data/data/$app/lib --exclude=data/data/$app/cache --exclude=data/data/$app/app_webview -czf $app.tgz$tarapk$tarlink /data/data/$app > /dev/null 2>&1
   
-  rm $app.apk
-  if [ -n "$link" ]; then
+  debug 1 "cleaning up leftovers"
+  if [ ! $DATAONLY ]; then
+    rm $app.apk
+  fi
+  if [ -n "$tarlink" ]; then
     rm $app.link
   fi
 
@@ -94,24 +107,28 @@ function app_restore() {
   app=$1
 
   echo "Restoring $app"
-  pushd $BACKUPPATH > /dev/null
-  debug 1 "unpacking apk"
-  tar -xzf $app.tgz $app.apk || { error "failed to unpack apk"; exit -1; }
-  debug 1 "installing apk"
-  pm install $BACKUPPATH/$app.apk 2> /dev/null | grep "Success" || { error "failed to install apk"; rm $app.apk; exit -1; }
-  rm $app.apk
-  if $RELINK; then
-    tar -xzf $app.tgz $app.link > /dev/null 2>&1 && {
-      debug 1 "moving apk to sdcard and relinking"
-      rm $app.link
-      apk=$(app_get_apk "$app")
-      apkbase=$(basename $apk)
-      mv $apk /data/sdext2/$apkbase
-      ln -s /data/sdext2/$apkbase $apk
-    }
-  fi
-  popd > /dev/null
 
+  if ! $DATAONLY; then
+    pushd $BACKUPPATH > /dev/null
+    debug 1 "unpacking apk"
+    tar -xzf $app.tgz $app.apk || { error "failed to unpack apk"; exit -1; }
+    debug 1 "installing apk"
+    pm install $BACKUPPATH/$app.apk 2> /dev/null | grep "Success" || { error "failed to install apk"; rm $app.apk; exit -1; }
+    rm $app.apk
+    if $RELINK; then
+      tar -xzf $app.tgz $app.link > /dev/null 2>&1 && {
+        debug 1 "moving apk to sdcard and relinking"
+        rm $app.link
+        apk=$(app_get_apk "$app")
+        apkbase=$(basename $apk)
+        mv $apk /data/sdext2/$apkbase
+        ln -s /data/sdext2/$apkbase $apk
+      }
+    fi
+    popd > /dev/null
+  fi
+
+  app_get_apk $app > /dev/null || { error "app $app not found (failed to install?)"; exit -1; }
   [ -d /data/data/$app ] || { error "no data directory found"; exit -1; }
   uid=$(ls -lnd /data/data/$app | awk '{print $2}')
   gid=$(ls -lnd /data/data/$app | awk '{print $3}')
@@ -160,30 +177,32 @@ function foreach() {
   done
 }
 
-TEMP=$(getopt -o bd::hp:rV --long backup,debug::,help,nolink,path:,restore,version -n "$(basename $0)" -- "$@")
+TEMP=$(getopt -o bd::Dhp:rV --long backup,debug::,data-only,help,nolink,path:,restore,version -n "$(basename $0)" -- "$@")
 
 [ $? == 0 ] || usage 1
 eval set -- "$TEMP"
 
 ACTION="none"
 BACKUPPATH=/storage/sdcard1/aam_backup
+DATAONLY=false
 RELINK=true
 while true ; do
   case "$1" in
-    -b|--backup)     ACTION="backup" ;;
+    -b|--backup)    ACTION="backup" ;;
     -d|--debug)
       case "$2" in
-        "")          DEBUG=2 ;;
-        *)           DEBUG=$2 ;;
+        "")           DEBUG=2 ;;
+        *)            DEBUG=$2 ;;
       esac
       shift ;;
-    -h|--help)     usage 0 ;;
-    --nolink)      RELINK=false ;;
-    -p|--path)     BACKUPPATH=$2; shift ;;
-    -r|--restore)  ACTION="restore" ;;
-    -V|--version)  version ;;
-    --)            shift ; break ;;
-    *)             error "Internal error!" ; exit 1 ;;
+    -D|--data-only) DATAONLY=true ;;
+    -h|--help)      usage 0 ;;
+    --nolink)       RELINK=false ;;
+    -p|--path)      BACKUPPATH=$2; shift ;;
+    -r|--restore)   ACTION="restore" ;;
+    -V|--version)   version ;;
+    --)             shift ; break ;;
+    *)              error "Internal error!" ; exit 1 ;;
   esac
   shift
 done
