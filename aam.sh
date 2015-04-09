@@ -25,13 +25,15 @@ DEBUG=0
 
 usage() {
   echo "Usage: $(basename $0) [options] <app> [<app>,...]"
-  echo "options:"
-  echo "  -h | --help         - print this help"
+  echo "actions:"
   echo "  -b | --backup       - backup app"
-  echo "  -d | --debug <lvl>  - set debug level (default 0, max 2)"
-  echo "  -p | --path <path>  - backup/restore path (default /storage/sdcard1/aam_backup)"
+  echo "  -h | --help         - print this help"
   echo "  -r | --restore      - restore app"
   echo "  -V | --version      - show version information"
+  echo "options:"
+  echo "  -d | --debug <lvl>  - set debug level (default 0, max 2)"
+  echo "  -p | --path <path>  - backup/restore path (default /storage/sdcard1/aam_backup)"
+  echo "       --nolink       - do not relink app to sdcard"
 
   exit $1
 }
@@ -98,14 +100,16 @@ function app_restore() {
   debug 1 "installing apk"
   pm install $BACKUPPATH/$app.apk || { error "failed to install apk"; rm $app.apk; exit -1; }
   rm $app.apk
-  tar -xzf $app.tgz $app.link > /dev/null 2>&1 && {
-    debug 1 "moving apk to sdcard and relinking"
-    rm $app.link
-    apk=$(app_get_apk "$app")
-    apkbase=$(basename $apk)
-    mv $apk /data/sdext2/$apkbase
-    ln -s /data/sdext2/$apkbase $apk
-  }
+  if $RELINK; then
+    tar -xzf $app.tgz $app.link > /dev/null 2>&1 && {
+      debug 1 "moving apk to sdcard and relinking"
+      rm $app.link
+      apk=$(app_get_apk "$app")
+      apkbase=$(basename $apk)
+      mv $apk /data/sdext2/$apkbase
+      ln -s /data/sdext2/$apkbase $apk
+    }
+  fi
   popd > /dev/null
 
   [ -d /data/data/$app ] || { error "no data directory found"; exit -1; }
@@ -156,29 +160,32 @@ function foreach() {
   done
 }
 
-TEMP=$(getopt -o bd::hp:rV --long backup,debug::,help,path:,restore,version -n "$(basename $0)" -- "$@")
+TEMP=$(getopt -o bd::hp:rV --long backup,debug::,help,nolink,path:,restore,version -n "$(basename $0)" -- "$@")
 
 [ $? == 0 ] || usage 1
 eval set -- "$TEMP"
 
 ACTION="none"
 BACKUPPATH=/storage/sdcard1/aam_backup
+RELINK=true
 while true ; do
   case "$1" in
-    -b|--backup)     ACTION="backup"; shift ;;
+    -b|--backup)     ACTION="backup" ;;
     -d|--debug)
       case "$2" in
         "")          DEBUG=2 ;;
         *)           DEBUG=$2 ;;
       esac
-      shift 2 ;;
-    -h|--help)     usage 0; shift ;;
-    -p|--path)     BACKUPPATH=$2; shift 2 ;;
-    -r|--restore)  ACTION="restore"; shift ;;
-    -V|--version)  version; shift ;;
+      shift ;;
+    -h|--help)     usage 0 ;;
+    --nolink)      RELINK=false ;;
+    -p|--path)     BACKUPPATH=$2; shift ;;
+    -r|--restore)  ACTION="restore" ;;
+    -V|--version)  version ;;
     --)            shift ; break ;;
     *)             error "Internal error!" ; exit 1 ;;
   esac
+  shift
 done
 
 if [ -z "$1" ]; then
