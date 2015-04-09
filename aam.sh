@@ -113,7 +113,7 @@ function app_restore() {
     debug 1 "unpacking apk"
     tar -xzf $app.tgz $app.apk || { error "failed to unpack apk"; exit -1; }
     debug 1 "installing apk"
-    pm install $BACKUPPATH/$app.apk 2> /dev/null | grep "Success" || { error "failed to install apk"; rm $app.apk; exit -1; }
+    pm install $BACKUPPATH/$app.apk 2> /dev/null | grep "Success" > /dev/null || { error "failed to install apk"; rm $app.apk; exit -1; }
     rm $app.apk
     if $RELINK; then
       tar -xzf $app.tgz $app.link > /dev/null 2>&1 && {
